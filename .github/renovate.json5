@@ -1,9 +1,21 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:best-practices"
+    "config:best-practices",
+    ":semanticCommits",
   ],
-
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/image-versions(\\.[^.]+)?\\.(yaml|yml)$/"
+      ],
+      "matchStrings": [
+        "image:\\s*(?<packageName>\\S+)\\s*tag:\\s*(?<currentValue>\\S+)\\s*digest:\\s*(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "automerge": true,
