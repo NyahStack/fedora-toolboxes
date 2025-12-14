@@ -18,9 +18,13 @@ fi
 dnf5 -y swap --repo='fedora' \
     OpenCL-ICD-Loader ocl-icd
 
-# Add COPRs
-dnf5 -y copr enable ublue-os/packages
-dnf5 -y copr enable ublue-os/staging
+# Add COPRs only if not already enabled
+if ! dnf5 repolist --enabled | grep -q 'ublue-os-packages'; then
+    dnf5 -y copr enable ublue-os/packages
+fi
+if ! dnf5 repolist --enabled | grep -q 'ublue-os-staging'; then
+    dnf5 -y copr enable ublue-os/staging
+fi
 
 # Install ublue-os packages, fedora archives,and zstd
 dnf5 -y install \

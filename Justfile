@@ -15,15 +15,17 @@ default_variant := "main"
 
 # Reused Values
 
-org := "azemaviator"
+org := "AzemaViator"
 repo := "fedora-toolbox"
-IMAGE_REGISTRY := "ghcr.io" / org
+IMAGE_REGISTRY := "ghcr.io" / lowercase(org)
 
 # Upstream
 
 [private]
 source_org := ""
 source_registry := "registry.fedoraproject.org"
+akmods_nvidia_org := "ublue-os"
+akmods_nvidia_registry := "ghcr.io" / akmods_nvidia_org
 
 # Image File
 
@@ -162,11 +164,13 @@ build-container $image_name="" $fedora_version="" $variant="" $github="":
     {{ get-names }}
     {{ pull-retry }}
 
-    BASE_IMAGE_DIGEST="$(yq -r ".images[] | select(.name == \"${source_image_name}-${fedora_version}\") | .digest" {{ image-file }})"
+    SOURCE_IMAGE_DIGEST="$(yq -r ".images[] | select(.name == \"${source_image_name}-${fedora_version}\") | .digest" {{ image-file }})"
+    AKMODS_NVIDIA_IMAGE_DIGEST="$(yq -r ".images[] | select(.name == \"akmods-nvidia-open-${fedora_version}\") | .digest" {{ image-file }})"
 
     # Verify Source Containers
     # TODO registry.fedoraproject.org does not sign images
-    # {{ just }} verify-container "$source_image_name@$BASE_IMAGE_DIGEST" "{{ source_registry }}"
+    # {{ just }} verify-container "$source_image_name@$SOURCE_IMAGE_DIGEST" "{{ source_registry }}"
+    {{ just }} verify-container "akmods-nvidia-open@$AKMODS_NVIDIA_IMAGE_DIGEST" "{{ akmods_nvidia_registry }}" "https://raw.githubusercontent.com/ublue-os/main/main/cosign.pub"
 
     # Tags
     declare -A gen_tags="($({{ just }} gen-tags $image_name $fedora_version $variant))"
@@ -187,35 +191,50 @@ build-container $image_name="" $fedora_version="" $variant="" $github="":
         "--label" "org.opencontainers.image.title=${image_name}"
         "--label" "org.opencontainers.image.version=${VERSION}"
         "--label" "org.opencontainers.image.description=A base ${image_name%-*} image with batteries included"
+        "--label" "org.opencontainers.image.source=https://github.com/{{ org }}/{{ repo }}"
         "--label" "io.artifacthub.package.readme-url=https://raw.githubusercontent.com/{{ org }}/{{ repo }}/main/README.md"
         "--label" "io.artifacthub.package.logo-url=https://avatars.githubusercontent.com/u/120078124?s=200&v=4"
     )
 
-    BUILD_NVIDIA="N"
+    TARGET="main"
     if [[ "$variant" =~ nvidia ]]; then
-        BUILD_NVIDIA="Y"
+        TARGET="nvidia"
     fi
 
     # Build Arguments
     BUILD_ARGS=(
         "--build-arg" "IMAGE_NAME=${image_name%-*}"
         "--build-arg" "SOURCE_ORG={{ source_org }}"
+        "--build-arg" "SOURCE_REGISTRY={{ source_registry }}"
         "--build-arg" "SOURCE_IMAGE=${source_image_name}"
         "--build-arg" "FEDORA_MAJOR_VERSION=$fedora_version"
         "--build-arg" "IMAGE_REGISTRY={{ IMAGE_REGISTRY }}"
-        "--build-arg" "BASE_IMAGE_DIGEST=$BASE_IMAGE_DIGEST"
-        "--build-arg" "BUILD_NVIDIA=$BUILD_NVIDIA"
+        "--build-arg" "AKMODS_NVIDIA_REGISTRY={{ akmods_nvidia_registry }}"
+        "--build-arg" "AKMODS_NVIDIA_IMAGE=akmods-nvidia-open"
+        "--build-arg" "SOURCE_IMAGE_DIGEST=$SOURCE_IMAGE_DIGEST"
+        "--build-arg" "AKMODS_NVIDIA_IMAGE_DIGEST=$AKMODS_NVIDIA_IMAGE_DIGEST"
     )
 
     # Pull Images with retry
-    pull-retry "{{ source_registry }}/$source_image_name:$fedora_version@$BASE_IMAGE_DIGEST"
+    pull-retry "{{ akmods_nvidia_registry }}/akmods-nvidia-open:main-$fedora_version@$AKMODS_NVIDIA_IMAGE_DIGEST"
+    pull-retry "{{ source_registry }}/$source_image_name:$fedora_version@$SOURCE_IMAGE_DIGEST"
+
+    CACHE_IMAGE="{{ IMAGE_REGISTRY }}/$image_name-cache-$fedora_version"
+    CACHE_ARGS=(
+        "--layers"
+        "--cache-from" "$CACHE_IMAGE"
+    )
+    if [[ -n "${CI:-}" && ! "${github:-}" =~ pull_request ]]; then
+        CACHE_ARGS+=("--cache-to" "$CACHE_IMAGE")
+    fi
 
     # Build Image
-    {{ PODMAN }} build -f Containerfile "${BUILD_ARGS[@]}" "${LABELS[@]}" "${TAGS[@]}"
+    {{ PODMAN }} build --target "$TARGET" -f Containerfile "${CACHE_ARGS[@]}" "${BUILD_ARGS[@]}" "${LABELS[@]}" "${TAGS[@]}"
 
     # CI Cleanup
     if [[ -n "${CI:-}" ]]; then
-    {{ PODMAN }} rmi -f "{{ source_registry }}/$source_image_name:$fedora_version@$BASE_IMAGE_DIGEST"
+        {{ PODMAN }} rmi -f "{{ akmods_nvidia_registry }}/akmods-nvidia-open:main-$fedora_version@$AKMODS_NVIDIA_IMAGE_DIGEST"
+        {{ PODMAN }} rmi -f "{{ source_registry }}/$source_image_name:$fedora_version@$SOURCE_IMAGE_DIGEST"
     fi
 
 # Generate Tags
@@ -342,11 +361,9 @@ verify-container $container="" $registry="" $key="":
     #!/usr/bin/env bash
     set ${SET_X:+-x} -eou pipefail
 
-    # ublue-os Public Key for Container Verification default
-    if [[ -z "${registry:-}" && -z "${key:-}"  ]]; then
-        registry={{ IMAGE_REGISTRY }}
-        key="https://raw.githubusercontent.com/ublue-os/main/main/cosign.pub"
-    fi
+    # Defaults: fall back to local registry and public key
+    : "${registry:={{ IMAGE_REGISTRY }}}"
+    : "${key:=https://raw.githubusercontent.com/{{ org }}/{{ repo }}/main/cosign.pub}"
 
     # Verify Container using cosign public key
     if ! cosign verify --key "$key" "$registry/$container" >/dev/null; then
