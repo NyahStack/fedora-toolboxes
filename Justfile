@@ -408,7 +408,7 @@ push-to-registry $image_name $fedora_version $variant $destination="" $transport
     declare -a TAGS="($({{ PODMAN }} image list localhost/$image_name:$fedora_version --noheading --format 'table {{{{ .Tag }}'))"
     for tag in "${TAGS[@]}"; do
         for i in {1..5}; do
-            {{ PODMAN }} manifest create "localhost/$image_name:$tag-manifest"
+            {{ PODMAN }} manifest create --replace "localhost/$image_name:$tag-manifest"
             {{ PODMAN }} manifest add "localhost/$image_name:$tag-manifest" "containers-storage:localhost/$image_name:$fedora_version"
             {{ PODMAN }} manifest push --compression-format=gzip --add-compression=zstd --add-compression=zstd:chunked "localhost/$image_name:$tag-manifest" "$transport$destination/$image_name:$tag" 2>&1 && break || sleep $((5 * i));
         done
