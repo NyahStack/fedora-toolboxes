@@ -407,7 +407,9 @@ push-to-registry $image_name $fedora_version $variant $destination="" $transport
 
     declare -a TAGS="($({{ PODMAN }} image list localhost/$image_name:$fedora_version --noheading --format 'table {{{{ .Tag }}'))"
     for tag in "${TAGS[@]}"; do
-        {{ PODMAN }} manifest rm --ignore "localhost/$image_name:$tag-manifest"
+        if {{ PODMAN }} manifest exists "localhost/$image_name:$tag-manifest"; then
+            {{ PODMAN }} manifest rm "localhost/$image_name:$tag-manifest"
+        fi
         {{ PODMAN }} manifest create "localhost/$image_name:$tag-manifest"
         {{ PODMAN }} manifest add "localhost/$image_name:$tag-manifest" "containers-storage:localhost/$image_name:$fedora_version"
         for i in {1..5}; do
