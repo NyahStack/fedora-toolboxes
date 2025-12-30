@@ -16,7 +16,6 @@ jobs:
     secrets: inherit
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         image_name:
           - fedora-toolbox
