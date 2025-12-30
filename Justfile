@@ -15,7 +15,7 @@ default_variant := "main"
 
 # Reused Values
 
-org := "AzemaViator"
+org := "NyahStack"
 repo := "fedora-toolbox"
 IMAGE_REGISTRY := "ghcr.io" / lowercase(org)
 
