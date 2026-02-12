@@ -14,6 +14,15 @@
         "image:\\s*(?<packageName>\\S+)\\s*tag:\\s*(?<currentValue>\\S+)\\s*digest:\\s*(?<currentDigest>sha256:[a-f0-9]+)"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/build_files/versions\\.env$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?\\s*\\nDISTROBOX_REF=(?<currentValue>\\S+)"
+      ]
     }
   ],
   "packageRules": [
@@ -58,6 +67,16 @@
         ".devcontainer/Containerfile"
       ],
       "enabled": false
+    },
+    {
+      "matchFileNames": [
+        "build_files/versions.env"
+      ],
+      "matchPackageNames": [
+        "89luca89/distrobox"
+      ],
+      "groupName": "distrobox",
+      "automerge": true
     }
   ]
 }

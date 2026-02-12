@@ -228,8 +228,18 @@ build-container $image_name="" $fedora_version="" $variant="" $github="":
         CACHE_ARGS+=("--cache-to" "$CACHE_IMAGE")
     fi
 
+    BUILD_SECRETS=()
+    GITHUB_TOKEN_FILE=""
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        GITHUB_TOKEN_FILE="$(mktemp)"
+        trap '[[ -n "${GITHUB_TOKEN_FILE:-}" ]] && rm -f "$GITHUB_TOKEN_FILE"' EXIT
+        printf '%s' "$GITHUB_TOKEN" > "$GITHUB_TOKEN_FILE"
+        chmod 600 "$GITHUB_TOKEN_FILE"
+        BUILD_SECRETS+=("--secret" "id=GITHUB_TOKEN,src=$GITHUB_TOKEN_FILE")
+    fi
+
     # Build Image
-    {{ PODMAN }} build --target "$TARGET" -f Containerfile "${CACHE_ARGS[@]}" "${BUILD_ARGS[@]}" "${LABELS[@]}" "${TAGS[@]}"
+    {{ PODMAN }} build --target "$TARGET" -f Containerfile "${CACHE_ARGS[@]}" "${BUILD_SECRETS[@]}" "${BUILD_ARGS[@]}" "${LABELS[@]}" "${TAGS[@]}"
 
     # CI Cleanup
     if [[ -n "${CI:-}" ]]; then
@@ -249,12 +259,18 @@ gen-tags $image_name="" $fedora_version="" $variant="":
     # Generate Timestamp with incrementing version point
     TIMESTAMP="$(date +%Y%m%d)"
     LIST_TAGS="$(mktemp)"
-    while [[ ! -s "$LIST_TAGS" ]]; do
-        skopeo list-tags docker://{{ IMAGE_REGISTRY }}/$image_name > "$LIST_TAGS"
+    for i in {1..5}; do
+        if skopeo list-tags "docker://{{ IMAGE_REGISTRY }}/$image_name" > "$LIST_TAGS"; then
+            break
+        fi
+        sleep $((5 * i))
     done
-    if [[ $(cat "$LIST_TAGS" | jq "any(.Tags[]; contains(\"$fedora_version-$TIMESTAMP\"))") == "true" ]]; then
+    if [[ ! -s "$LIST_TAGS" ]]; then
+        echo '{"Tags":[]}' > "$LIST_TAGS"
+    fi
+    if jq -e --arg tag "$fedora_version-$TIMESTAMP" 'any((.Tags // [])[]; contains($tag))' "$LIST_TAGS" >/dev/null; then
         POINT="1"
-        while $(cat "$LIST_TAGS" | jq -e "any(.Tags[]; contains(\"$fedora_version-$TIMESTAMP.$POINT\"))")
+        while jq -e --arg tag "$fedora_version-$TIMESTAMP.$POINT" 'any((.Tags // [])[]; contains($tag))' "$LIST_TAGS" >/dev/null
         do
             (( POINT++ ))
         done
@@ -276,7 +292,7 @@ gen-tags $image_name="" $fedora_version="" $variant="":
         BUILD_TAGS=("latest" "latest-$TIMESTAMP")
     elif [[ "$fedora_version" -eq "{{ beta }}" ]]; then
         COMMIT_TAGS=("$SHA_SHORT-beta")
-        BUILD_TAGS=("beta beta-$TIMESTAMP")
+        BUILD_TAGS=("beta" "beta-$TIMESTAMP")
     fi
 
     COMMIT_TAGS+=("$SHA_SHORT-$fedora_version" "$fedora_version")

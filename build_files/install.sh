@@ -2,8 +2,16 @@
 
 set -ouex pipefail
 
-# Copy System Files onto root
-rsync -rvK /ctx/sys_files/ /
+# Shared pinned versions
+source /ctx/versions.env
+
+# Copy shared system files onto root
+rsync -rvK /ctx/sys_files/shared/ /
+
+# Copy system files for the current image when present.
+if [[ -n "${IMAGE_NAME:-}" ]] && [[ -d "/ctx/sys_files/systemd/${IMAGE_NAME}" ]]; then
+    rsync -rvK "/ctx/sys_files/systemd/${IMAGE_NAME}/" /
+fi
 
 # make root's home
 mkdir -p /var/roothome
@@ -79,11 +87,6 @@ dnf5 swap -y \
 mkdir -p /etc/flatpak/remotes.d/
 curl --retry 3 -Lo /etc/flatpak/remotes.d/flathub.flatpakrepo https://dl.flathub.org/repo/flathub.flatpakrep
 
-# Prevent partial QT upgrades that may break SDDM/KWin
-if [[ "$IMAGE_NAME" == "kinoite" ]]; then
-    dnf5 versionlock add "qt6-*"
-fi
-
 # Ensure jq is available for package parsing
 if ! rpm -q jq >/dev/null; then
     dnf5 -y install jq
@@ -91,6 +94,14 @@ fi
 
 # run common packages script
 /ctx/packages.sh
+
+# Distrobox Integration
+git clone --depth=1 --branch "${DISTROBOX_REF}" https://github.com/89luca89/distrobox.git --single-branch /tmp/distrobox
+cp /tmp/distrobox/distrobox-host-exec /usr/bin/distrobox-host-exec
+ln -s /usr/bin/distrobox-host-exec /usr/bin/flatpak
+wget https://github.com/1player/host-spawn/releases/download/$(cat /tmp/distrobox/distrobox-host-exec | grep host_spawn_version= | cut -d "\"" -f 2)/host-spawn-$(uname -m) -O /usr/bin/host-spawn
+chmod +x /usr/bin/host-spawn
+rm -drf /tmp/distrobox
 
 ## install packages direct from github
 /ctx/github-release-install.sh sigstore/cosign x86_64

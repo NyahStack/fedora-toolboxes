@@ -26,6 +26,8 @@ RUN --mount=type=bind,from=ctx,src=/,dst=/ctx \
     --mount=type=cache,target=/var/cache \
     --mount=type=cache,target=/var/log \
     --mount=type=tmpfs,target=/tmp \
+    --mount=type=secret,id=GITHUB_TOKEN,required=false \
+    if [[ -f /run/secrets/GITHUB_TOKEN ]]; then export GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN)"; fi && \
     rm -f /usr/bin/chsh && \
     rm -f /usr/bin/lchsh && \
     /ctx/install.sh && \
