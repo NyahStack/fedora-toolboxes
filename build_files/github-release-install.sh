@@ -1,5 +1,12 @@
 #!/bin/bash
 #
+# Upstream source:
+#   https://github.com/ublue-os/main/blob/main/build_files/github-release-install.sh
+# Local modifications:
+#   - Supports optional GITHUB_TOKEN for authenticated GitHub API requests.
+#   - Temporarily disables xtrace around API requests to avoid leaking sensitive headers.
+#   - Fails early with a clear error if no matching RPM asset is found.
+#
 # A script to install an RPM from the latest Github release for a project.
 #
 # ORG_PROJ is the pair of URL components for organization/projectName in Github URL
@@ -45,30 +52,13 @@ set -ouex pipefail
 API_JSON=$(mktemp /tmp/api-XXXXXXXX.json)
 API="https://api.github.com/repos/${ORG_PROJ}/releases/${RELTAG}"
 
-CURL_ARGS=(
-  "--fail"
-  "--retry" "5"
-  "--retry-delay" "5"
-  "--retry-all-errors"
-  "-sL"
-)
-
-# Use authenticated GitHub API calls when a token is available.
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  CURL_ARGS+=(
-    "-H" "Accept: application/vnd.github+json"
-    "-H" "Authorization: Bearer ${GITHUB_TOKEN}"
-    "-H" "X-GitHub-Api-Version: 2022-11-28"
-  )
-fi
-
 # retry up to 5 times with 5 second delays for any error included HTTP 404 etc
 had_xtrace=0
 if [[ "$-" == *x* ]]; then
   had_xtrace=1
   set +x
 fi
-curl "${CURL_ARGS[@]}" "${API}" -o "${API_JSON}"
+"$(dirname "$0")/ghcurl" "${API}" -o "${API_JSON}"
 if [[ "${had_xtrace}" -eq 1 ]]; then
   set -x
 fi
