@@ -1,0 +1,17 @@
+[Unit]
+Description=Ensure subuid/subgid ranges for rootless podman
+ConditionVirtualization=container
+ConditionEnvironment=DISTROBOX_USER
+ConditionEnvironment=DISTROBOX_USER_HOME
+
+[Service]
+Type=oneshot
+PassEnvironment=DISTROBOX_USER
+PassEnvironment=DISTROBOX_USER_HOME
+PassEnvironment=SUBUID_RANGE
+PassEnvironment=SUBGID_RANGE
+ExecStart=/usr/local/libexec/podman-subids-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

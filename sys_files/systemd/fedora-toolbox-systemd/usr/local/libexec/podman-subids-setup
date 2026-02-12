@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${DISTROBOX_USER:?DISTROBOX_USER is required}"
+: "${DISTROBOX_USER_HOME:?DISTROBOX_USER_HOME is required}"
+
+SUBUID_RANGE="${SUBUID_RANGE:-100000-165535}"
+SUBGID_RANGE="${SUBGID_RANGE:-100000-165535}"
+
+# Ensure the runtime user has subuid/subgid ranges for rootless podman.
+ensure_range() {
+  local file="$1" range="$2" kind="$3"
+
+  # If the user already has an entry, leave it alone.
+  if [ -f "$file" ] && awk -F: -v user="$DISTROBOX_USER" '$1==user {found=1} END{exit found?0:1}' "$file"; then
+    return 0
+  fi
+
+  touch "$file"
+  chmod 0644 "$file"
+
+  if [ "$kind" = "subuid" ]; then
+    usermod --add-subuids "$range" "$DISTROBOX_USER"
+  else
+    usermod --add-subgids "$range" "$DISTROBOX_USER"
+  fi
+}
+
+if ! getent passwd "$DISTROBOX_USER" >/dev/null 2>&1; then
+  printf 'podman-subids-setup: user %s not present, skipping\n' "$DISTROBOX_USER" >&2
+  exit 0
+fi
+
+ensure_range /etc/subuid "$SUBUID_RANGE" subuid
+ensure_range /etc/subgid "$SUBGID_RANGE" subgid
+
+printf 'podman-subids-setup: ensured subuid/subgid ranges for %s\n' "$DISTROBOX_USER"

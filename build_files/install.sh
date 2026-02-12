@@ -83,9 +83,11 @@ dnf5 remove -y \
 dnf5 swap -y \
     fedora-third-party ublue-os-flatpak
 
-# Add Flathub to the image for eventual application
-mkdir -p /etc/flatpak/remotes.d/
-curl --retry 3 -Lo /etc/flatpak/remotes.d/flathub.flatpakrepo https://dl.flathub.org/repo/flathub.flatpakrep
+# Add Flathub only for systemd variant where flatpak is installed natively.
+if [[ "${IMAGE_NAME:-}" == "fedora-toolbox-systemd" ]]; then
+    mkdir -p /etc/flatpak/remotes.d/
+    curl --retry 3 --fail -Lo /etc/flatpak/remotes.d/flathub.flatpakrepo https://dl.flathub.org/repo/flathub.flatpakrepo
+fi
 
 # Ensure jq is available for package parsing
 if ! rpm -q jq >/dev/null; then
@@ -95,11 +97,19 @@ fi
 # run common packages script
 /ctx/packages.sh
 
+# Enable rootless podman subid bootstrap for systemd variant.
+if [[ "${IMAGE_NAME:-}" == "fedora-toolbox-systemd" ]]; then
+    systemctl enable podman-subids-setup.service
+fi
+
 # Distrobox Integration
 git clone --depth=1 --branch "${DISTROBOX_REF}" https://github.com/89luca89/distrobox.git --single-branch /tmp/distrobox
 cp /tmp/distrobox/distrobox-host-exec /usr/bin/distrobox-host-exec
-ln -s /usr/bin/distrobox-host-exec /usr/bin/flatpak
-wget https://github.com/1player/host-spawn/releases/download/$(cat /tmp/distrobox/distrobox-host-exec | grep host_spawn_version= | cut -d "\"" -f 2)/host-spawn-$(uname -m) -O /usr/bin/host-spawn
+if [[ "${IMAGE_NAME:-}" != "fedora-toolbox-systemd" ]]; then
+    ln -s /usr/bin/distrobox-host-exec /usr/bin/flatpak
+fi
+HOST_SPAWN_VERSION="$(grep -oE 'host_spawn_version="[^"]+"' /tmp/distrobox/distrobox-host-exec | cut -d '"' -f 2)"
+/ctx/ghcurl "https://github.com/1player/host-spawn/releases/download/${HOST_SPAWN_VERSION}/host-spawn-$(uname -m)" -o /usr/bin/host-spawn
 chmod +x /usr/bin/host-spawn
 rm -drf /tmp/distrobox
 

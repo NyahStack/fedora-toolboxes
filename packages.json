@@ -98,6 +98,8 @@
       ],
       "fedora-toolbox-systemd": [
         "dbus-daemon",
+        "flatpak",
+        "podman",
         "systemd"
       ]
     },
