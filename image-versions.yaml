@@ -7,7 +7,7 @@ images:
   - name: akmods-nvidia-open-42
     image: ghcr.io/ublue-os/akmods-nvidia-open
     tag: main-42
-    digest: sha256:6da00a4b514c7b79aeef75612db00ae64e1164b9fe474e046dc3cc79a7117720
+    digest: sha256:7819e7809ca4b86c9ccc3f567c82aa6542609f66c79033d126db54f5ba3a810c
 
   # Fedora 43
   - name: fedora-toolbox-43
@@ -17,4 +17,4 @@ images:
   - name: akmods-nvidia-open-43
     image: ghcr.io/ublue-os/akmods-nvidia-open
     tag: main-43
-    digest: sha256:060eb93d13e9ba476aa722cbd8a7faa0fcef629c20e43daba86eb858caaf1019
+    digest: sha256:f64ef2bb1f2064f4ea5dfa2d8f06f6075a46159cc728be36b24092764c1b6ecd
