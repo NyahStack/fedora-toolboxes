@@ -75,14 +75,6 @@ OVERRIDES=(
 dnf5 distro-sync --skip-unavailable -y --repo='fedora-multimedia' "${OVERRIDES[@]}"
 dnf5 versionlock add "${OVERRIDES[@]}"
 
-# Remove Fedora Flatpak and related packages
-dnf5 remove -y \
-    fedora-flathub-remote
-
-# fedora-third-party has a trojan horse via plasma-discover requiring it in its spec, replace it with a dummy package.
-dnf5 swap -y \
-    fedora-third-party ublue-os-flatpak
-
 # Add Flathub only for systemd variant where flatpak is installed natively.
 if [[ "${IMAGE_NAME:-}" == "fedora-toolbox-systemd" ]]; then
     mkdir -p /etc/flatpak/remotes.d/
