@@ -518,9 +518,13 @@ verify-container $container="" $registry="" $key="" $fallback_key="":
 
     resolved_key="$key"
     tmp_key=""
+    verify_log=""
     cleanup() {
         if [[ -n "${tmp_key:-}" && -f "$tmp_key" ]]; then
             rm -f "$tmp_key"
+        fi
+        if [[ -n "${verify_log:-}" && -f "$verify_log" ]]; then
+            rm -f "$verify_log"
         fi
     }
     trap cleanup EXIT
@@ -549,8 +553,24 @@ verify-container $container="" $registry="" $key="" $fallback_key="":
         exit 1
     fi
 
-    # Verify Container using cosign public key
-    if ! cosign verify --key "$resolved_key" "$registry/$container" >/dev/null; then
+    verify_log="$(mktemp)"
+
+    # Verify Container using cosign public key. If the upstream image presents
+    # a certificate-based signature instead, retry with the GitHub Actions OIDC
+    # identity used by ublue-os.
+    if ! cosign verify --key "$resolved_key" "$registry/$container" >/dev/null 2>"$verify_log"; then
+        if grep -Fq "expected key signature, not certificate" "$verify_log" \
+            && [[ "$registry/$container" == ghcr.io/ublue-os/* ]]; then
+            warn "Key verification returned a certificate signature for '$registry/$container'; retrying with GitHub OIDC identity verification."
+            if cosign verify \
+                --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                --certificate-identity-regexp '^https://github.com/ublue-os/.+' \
+                "$registry/$container" >/dev/null; then
+                exit 0
+            fi
+        fi
+
+        cat "$verify_log" >&2
         echo "{{ style('error') }}NOTICE: Verification failed. Please ensure your public key is correct.{{ NORMAL }}" >&2
         exit 1
     fi
