@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ "$(id -u)" -eq 0 ]]; then
+    exit 0
+fi
+
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]] || [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+    exit 0
+fi
+
+if ! command -v systemctl >/dev/null 2>&1; then
+    exit 0
+fi
+
+declare -A host_session_env=()
+declare -A manager_session_env=()
+tracked_vars=(
+    DISPLAY
+    WAYLAND_DISPLAY
+    XAUTHORITY
+    XDG_CURRENT_DESKTOP
+    XDG_SESSION_TYPE
+    XDG_SESSION_DESKTOP
+    XDG_MENU_PREFIX
+    XDG_SEAT
+    XDG_VTNR
+    XDG_SESSION_ID
+    DESKTOP_SESSION
+)
+
+load_session_env_from_block() {
+    local assoc_name="$1"
+    local env_block="$2"
+    declare -n assoc_ref="${assoc_name}"
+
+    assoc_ref=()
+    if [[ -z "${env_block}" ]]; then
+        return 1
+    fi
+
+    while IFS='=' read -r key value; do
+        case "${key}" in
+            DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|XDG_CURRENT_DESKTOP|XDG_SESSION_TYPE|XDG_SESSION_DESKTOP|XDG_MENU_PREFIX|XDG_SEAT|XDG_VTNR|XDG_SESSION_ID|DESKTOP_SESSION)
+                if [[ -n "${value}" ]]; then
+                    assoc_ref["${key}"]="${value}"
+                fi
+                ;;
+        esac
+    done <<<"${env_block}"
+}
+
+load_manager_session_env() {
+    local env_block
+    env_block="$(systemctl --user show-environment 2>/dev/null || true)"
+    if [[ -z "${env_block}" ]]; then
+        return 1
+    fi
+
+    load_session_env_from_block manager_session_env "${env_block}"
+}
+
+load_host_session_env() {
+    if ! command -v distrobox-host-exec >/dev/null 2>&1; then
+        return 1
+    fi
+
+    local env_block
+    env_block="$(timeout 2s distrobox-host-exec systemctl --user show-environment 2>/dev/null || true)"
+    if [[ -z "${env_block}" ]]; then
+        return 1
+    fi
+
+    load_session_env_from_block host_session_env "${env_block}"
+}
+
+if ! load_manager_session_env; then
+    exit 0
+fi
+
+# If the manager is missing display/session vars or has drifted away from the
+# host session, reload it so the user-environment-generator can refresh the
+# default/generated manager state from the host source of truth. Explicit
+# manager-side overrides are not cleared here.
+needs_reload=0
+if load_host_session_env; then
+    for name in "${tracked_vars[@]}"; do
+        if [[ "${manager_session_env[$name]:-}" != "${host_session_env[$name]:-}" ]]; then
+            needs_reload=1
+            break
+        fi
+    done
+elif [[ -z "${manager_session_env[DISPLAY]:-}" ]] && [[ -z "${manager_session_env[WAYLAND_DISPLAY]:-}" ]]; then
+    needs_reload=1
+fi
+
+if (( needs_reload )); then
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    if ! load_manager_session_env; then
+        exit 0
+    fi
+fi
+
+if [[ -z "${manager_session_env[DISPLAY]:-}" ]] && [[ -z "${manager_session_env[WAYLAND_DISPLAY]:-}" ]]; then
+    exit 0
+fi
+
+declare -a portal_units=()
+needs_portal_restart=0
+
+for unit in xdg-desktop-portal.service xdg-desktop-portal-gtk.service xdg-desktop-portal-kde.service; do
+    if ! systemctl --user --quiet is-active "${unit}"; then
+        continue
+    fi
+
+    portal_units+=("${unit}")
+    pid="$(systemctl --user show -p MainPID --value "${unit}" 2>/dev/null || true)"
+    if [[ -z "${pid}" ]] || [[ "${pid}" == "0" ]] || [[ ! -r "/proc/${pid}/environ" ]]; then
+        continue
+    fi
+
+    portal_env="$(tr '\0' '\n' <"/proc/${pid}/environ" || true)"
+    for name in "${tracked_vars[@]}"; do
+        if [[ -z "${manager_session_env[$name]:-}" ]]; then
+            continue
+        fi
+        if ! grep -Fqx -- "${name}=${manager_session_env[$name]}" <<<"${portal_env}"; then
+            needs_portal_restart=1
+            break
+        fi
+    done
+done
+
+if (( needs_portal_restart )) && (( ${#portal_units[@]} > 0 )); then
+    systemctl --user restart "${portal_units[@]}" >/dev/null 2>&1 || true
+fi

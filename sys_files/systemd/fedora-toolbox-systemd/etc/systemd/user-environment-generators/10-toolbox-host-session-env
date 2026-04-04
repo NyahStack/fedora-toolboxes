@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ "$(id -u)" -eq 0 ]]; then
+    exit 0
+fi
+
+if [[ ! -x /usr/bin/distrobox-host-exec ]]; then
+    exit 0
+fi
+
+host_env="$(
+    /usr/bin/timeout 2s /usr/bin/distrobox-host-exec /usr/bin/systemctl --user show-environment 2>/dev/null || true
+)"
+
+if [[ -z "${host_env}" ]]; then
+    exit 0
+fi
+
+while IFS='=' read -r key value; do
+    case "${key}" in
+        DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|XDG_CURRENT_DESKTOP|XDG_SESSION_TYPE|XDG_SESSION_DESKTOP|XDG_MENU_PREFIX|XDG_SEAT|XDG_VTNR|XDG_SESSION_ID|DESKTOP_SESSION)
+            printf '%s=%s\n' "${key}" "${value}"
+            ;;
+    esac
+done <<<"${host_env}"
