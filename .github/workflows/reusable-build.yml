@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       image_version:
-        description: "The Version: gts, latest, beta... Justfile holds value"
+        description: "The lane version alias. Justfile holds the concrete Fedora release."
         required: true
         type: string
       image_name:
