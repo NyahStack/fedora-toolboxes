@@ -27,9 +27,9 @@ If you are unsure which variant to use, start with `-main` on `:latest`:
 
 All images are published in release lanes:
 
-- `gts` -> Fedora 42
-- `latest` -> Fedora 43
-- `beta` -> Fedora 44
+- `gts` -> Fedora 43
+- `latest` -> Fedora 44
+- `beta` -> reserved for Fedora 45 once it is in testing
 
 So you pick:
 1. an image variant (main/systemd, with or without nvidia)
@@ -65,7 +65,6 @@ What it provides:
 - Enabled system services in build: `host-timezone-sync.service` and `podman-subids-setup.service`.
 - Flathub remote file provisioning at `/etc/flatpak/remotes.d/flathub.flatpakrepo`.
 - Design intent: feel closer to a separate host while remaining part of the same desktop experience.
-- Planned direction: fuller dbus-proxy integration for desktop settings paths such as dconf/theme/window-decoration behavior.
 - Intended runtime mode is `distrobox create --init`.
 
 ### `-nvidia`
@@ -95,7 +94,7 @@ Workflows:
 - [`build-latest.yml`](./.github/workflows/build-latest.yml)
 - [`build-beta.yml`](./.github/workflows/build-beta.yml)
 
-All three call [`reusable-build.yml`](./.github/workflows/reusable-build.yml), which:
+`build-gts.yml` and `build-latest.yml` call [`reusable-build.yml`](./.github/workflows/reusable-build.yml), which:
 
 - Resolves lane aliases from `Justfile`
 - Compares pinned digests from `image-versions.yaml`
@@ -106,7 +105,7 @@ All three call [`reusable-build.yml`](./.github/workflows/reusable-build.yml), w
 
 This repository is intended to be consumed by downstream image projects that want stable, versioned Fedora toolbox bases.
 
-Downstreams can track lane tags (`gts`, `latest`, `beta`) or specific dated/version tags from this repo and rebuild on their own cadence.
+Downstreams can track lane tags (`gts`, `latest`) or specific dated/version tags from this repo and rebuild on their own cadence. The `beta` lane is currently parked until Fedora 45 enters testing.
 
 Example downstream:
 
@@ -134,7 +133,7 @@ distrobox create --name nyah-fedora-systemd-nvidia --image ghcr.io/nyahstack/fed
 distrobox enter nyah-fedora-systemd-nvidia
 ```
 
-To use a different lane, replace `:latest` with `:gts` or `:beta`.
+To use a different lane, replace `:latest` with `:gts`. The `:beta` lane is currently parked.
 
 ## Local Usage
 
@@ -152,8 +151,10 @@ Examples:
 # Build latest main variant
 just build fedora-toolbox latest main
 
-# Build beta nvidia variant
-just build fedora-toolbox beta nvidia
+# Build gts nvidia variant
+just build fedora-toolbox gts nvidia
+
+# Beta lane is currently parked until Fedora 45 enters testing
 
 # Run a built container
 just run fedora-toolbox latest main

@@ -3,6 +3,10 @@
 set -ouex pipefail
 
 FRELEASE="$(rpm -E %fedora)"
+: "${AKMODNV_PATH:=/tmp/akmods-rpms}"
+
+# this is only to aid in human understanding of any issues in CI
+find "${AKMODNV_PATH}"/
 
 if ! command -v dnf5 >/dev/null; then
     echo "Requires dnf5... Exiting"
@@ -28,11 +32,14 @@ MULTILIB=(
     mesa-libEGL.i686
     mesa-libGL.i686
     mesa-libgbm.i686
-    mesa-va-drivers.i686
     mesa-vulkan-drivers.i686
 )
 
+# F44 does not need this: https://src.fedoraproject.org/rpms/mesa/c/f747343d109d2b691d3abcf4649cd10ad42d6578?branch=f44
 dnf5 install -y "${MULTILIB[@]}"
+if [ "$FRELEASE" -lt 44 ]; then
+    dnf5 install -y mesa-va-drivers.i686
+fi
 
 # enable repos provided by ublue-os-nvidia-addons
 dnf5 config-manager setopt fedora-nvidia.enabled=1
@@ -43,11 +50,6 @@ if dnf5 repolist --enabled | grep -q "fedora-multimedia"; then
     NEGATIVO17_MULT_PREV_ENABLED=Y
     echo "disabling negativo17-fedora-multimedia to ensure negativo17-fedora-nvidia is used"
     dnf5 config-manager setopt fedora-multimedia.enabled=0
-fi
-
-# Enable staging for supergfxctl if repo file exists
-if ! dnf5 repolist --enabled | grep -q 'ublue-os-staging'; then
-    dnf5 -y copr enable ublue-os/staging
 fi
 
 dnf5 install -y \

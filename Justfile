@@ -2,10 +2,10 @@ set unstable := true
 
 # Tags
 
-gts := "42"
-latest := "43"
+gts := "43"
+latest := "44"
 [private]
-beta := "44"
+beta := "45"
 
 # Defaults
 
@@ -387,7 +387,7 @@ act-list:
 
 # Run a GitHub Actions workflow locally using act
 [group('Utility')]
-act-run $workflow=".github/workflows/build-beta.yml" $job="" $event="workflow_dispatch" $platform="ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-latest" $extra="":
+act-run $workflow=".github/workflows/build-latest.yml" $job="" $event="workflow_dispatch" $platform="ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-latest" $extra="":
     #!/usr/bin/env bash
     set ${SET_X:+-x} -eou pipefail
 

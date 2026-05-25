@@ -1,8 +1,6 @@
 name: ublue beta
 
 on:
-  pull_request:
-  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -10,19 +8,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: build
-    uses: ./.github/workflows/reusable-build.yml
-    secrets: inherit
-    strategy:
-      fail-fast: false
-      matrix:
-        image_name:
-          - fedora-toolbox
-          - fedora-toolbox-systemd
-        image_variant:
-          - main
-    with:
-      image_name: ${{ matrix.image_name }}
-      image_variant: ${{ matrix.image_variant }}
-      image_version: beta
+  parked:
+    name: Beta lane parked
+    runs-on: ubuntu-latest
+    steps:
+      - name: Beta lane status
+        run: |
+          echo "Beta lane is parked."
+          echo "Reserved target: Fedora 45 once it is in testing and image digests are added."
+          echo "No beta builds are run from this workflow yet."
