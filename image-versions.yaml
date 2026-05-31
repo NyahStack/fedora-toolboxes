@@ -3,7 +3,7 @@ images:
   - name: fedora-toolbox-43
     image: registry.fedoraproject.org/fedora-toolbox
     tag: 43
-    digest: sha256:de6892e7e7171ea294c593d6d5c16400ba2b370fbbeb7b954762caf3aa122d53
+    digest: sha256:f354723c1f77ad8c059df90ed27e2e84695f9a919489114c0fa87ed0b2a5bbaa
   - name: akmods-nvidia-open-43
     image: ghcr.io/ublue-os/akmods-nvidia-open
     tag: main-43
@@ -13,7 +13,7 @@ images:
   - name: fedora-toolbox-44
     image: registry.fedoraproject.org/fedora-toolbox
     tag: 44
-    digest: sha256:3bae7da7a7fbff06b5494236f0bf5631fcc9f0f69fb31bbde2270476340db51c
+    digest: sha256:e971fa6e1f7aae5fb98d1624f51ac88ec581ef138f83e37f1cb36421cf1b2f8d
   - name: akmods-nvidia-open-44
     image: ghcr.io/ublue-os/akmods-nvidia-open
     tag: main-44
