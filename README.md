@@ -32,7 +32,7 @@ All images are published in release lanes:
 - `beta` -> reserved for Fedora 45 once it is in testing
 
 So you pick:
-1. an image variant (main/systemd, with or without nvidia)
+1. an image variant (main or systemd-main)
 2. a lane tag (`gts`, `latest`, or `beta`)
 
 Image naming pattern:
@@ -67,24 +67,12 @@ What it provides:
 - Design intent: feel closer to a separate host while remaining part of the same desktop experience.
 - Intended runtime mode is `distrobox create --init`.
 
-### `-nvidia`
-
-Why it exists:
-- NVIDIA hosts need explicit driver integration in the container.
-
-What it provides:
-- Built from the `nvidia` Containerfile target (`FROM main as nvidia`), so it includes the base variant first.
-- NVIDIA addon install path from `build_files/nvidia-install.sh`: `ublue-os-nvidia-addons` RPM payload from upstream akmods image, NVIDIA userspace libraries (`nvidia-driver-libs`, `nvidia-driver-cuda-libs`, `libnvidia-fbc`, etc.), and multilib graphics stack packages (`mesa-* .i686`).
-- Intended runtime mode is `distrobox create --nvidia`.
-
 Suffixes combine as follows:
 
-- `-main`: default non-NVIDIA variant
-- `-nvidia`: `-main` behavior plus NVIDIA integration
-- `-systemd-main`: systemd mode plus non-NVIDIA variant
-- `-systemd-nvidia`: systemd mode plus NVIDIA integration
+- `-main`: default toolbox variant
+- `-systemd-main`: systemd variant
 
-`main` in the image name means non-NVIDIA variant, not the release lane.
+`main` in the image name distinguishes the default toolbox variant from the release lane.
 
 ## Build and CI Model
 
@@ -120,17 +108,9 @@ Run these on the host.
 distrobox create --name nyah-fedora-main --image ghcr.io/nyahstack/fedora-toolbox-main:latest
 distrobox enter nyah-fedora-main
 
-# Main NVIDIA image (latest lane)
-distrobox create --name nyah-fedora-main-nvidia --image ghcr.io/nyahstack/fedora-toolbox-nvidia:latest --nvidia
-distrobox enter nyah-fedora-main-nvidia
-
 # Systemd image (latest lane, requires --init for systemd as PID 1)
 distrobox create --name nyah-fedora-systemd --image ghcr.io/nyahstack/fedora-toolbox-systemd-main:latest --init
 distrobox enter nyah-fedora-systemd
-
-# Systemd NVIDIA image (latest lane)
-distrobox create --name nyah-fedora-systemd-nvidia --image ghcr.io/nyahstack/fedora-toolbox-systemd-nvidia:latest --init --nvidia
-distrobox enter nyah-fedora-systemd-nvidia
 ```
 
 To use a different lane, replace `:latest` with `:gts`. The `:beta` lane is currently parked.
@@ -150,9 +130,6 @@ Examples:
 ```bash
 # Build latest main variant
 just build fedora-toolbox latest main
-
-# Build gts nvidia variant
-just build fedora-toolbox gts nvidia
 
 # Beta lane is currently parked until Fedora 45 enters testing
 
@@ -198,7 +175,6 @@ Also update any README badge URLs so they point at the correct repository.
 This repo includes project-level Renovate rules in [`.github/renovate.json5`](./.github/renovate.json5), including digest tracking for:
 
 - `registry.fedoraproject.org/*`
-- `ghcr.io/ublue-os/akmods-nvidia-open`
 
 Note: the digest update workflow in this project depends on a self-hosted Renovate setup with org-level inherited config. It does not behave the same way with the official hosted Renovate app.
 

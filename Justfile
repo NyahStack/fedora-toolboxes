@@ -1,4 +1,4 @@
-set unstable := true
+set unstable
 
 # Tags
 
@@ -24,8 +24,7 @@ IMAGE_REGISTRY := "ghcr.io" / lowercase(org)
 [private]
 source_org := ""
 source_registry := "registry.fedoraproject.org"
-akmods_nvidia_org := "ublue-os"
-akmods_nvidia_registry := "ghcr.io" / akmods_nvidia_org
+chunkah_registry := "quay.io/coreos"
 
 # Image File
 
@@ -57,7 +56,6 @@ fedora_versions := '(
 [private]
 variants := '(
     ["main"]="main"
-    ["nvidia"]="nvidia"
 )'
 
 # Sudo/Podman/Just
@@ -105,10 +103,11 @@ fedora_version="${_images[2]}"
 '
 [private]
 build-missing := '
-cmd="' + just + ' build ${image_name%-*} $fedora_version $variant"
-if ! ' + PODMAN + ' image exists "localhost/$image_name:$fedora_version"; then
-    echo "' + style('warning') + 'Warning' + NORMAL +': Container Does Not Exist..." >&2
-    echo "' + style('warning') + 'Will Run' + NORMAL +': ' + style('command') + '$cmd' + NORMAL +'" >&2
+local_tag="${local_tag:-$fedora_version}"
+cmd="' + just + ' build ${image_name%-*} $fedora_version $variant ${github:-}"
+if ! ' + PODMAN + ' image exists "localhost/$image_name:$local_tag"; then
+    echo "' + style('warning') + 'Warning' + NORMAL + ': Container Does Not Exist..." >&2
+    echo "' + style('warning') + 'Will Run' + NORMAL + ': ' + style('command') + '$cmd' + NORMAL + '" >&2
     seconds=5
     while [ $seconds -gt 0 ]; do
         printf "\rTime remaining: ' + style('error') + '%d' + NORMAL + ' seconds to cancel" $seconds >&2
@@ -116,9 +115,10 @@ if ! ' + PODMAN + ' image exists "localhost/$image_name:$fedora_version"; then
         (( seconds-- ))
     done
     echo "" >&2
-    echo "'+ style('warning') +'Running'+ NORMAL+ ': '+ style('command') +'$cmd'+ NORMAL+ '" >&2
+    echo "' + style('warning') + 'Running' + NORMAL + ': ' + style('command') + '$cmd' + NORMAL + '" >&2
     $cmd
 fi
+unset local_tag
 '
 [private]
 pull-retry := '
@@ -131,7 +131,7 @@ function pull-retry() {
         (( retries-- ))
     done
     if ! (( retries )); then
-        echo "' + style('error') +' Unable to pull ${target/@*/}...' + NORMAL +'" >&2
+        echo "' + style('error') + ' Unable to pull ${target/@*/}...' + NORMAL + '" >&2
         exit 1
     fi
     trap - SIGINT
@@ -165,21 +165,24 @@ build-container $image_name="" $fedora_version="" $variant="" $github="":
     {{ pull-retry }}
 
     SOURCE_IMAGE_DIGEST="$(yq -r ".images[] | select(.name == \"${source_image_name}-${fedora_version}\") | .digest" {{ image-file }})"
-    AKMODS_NVIDIA_IMAGE_DIGEST="$(yq -r ".images[] | select(.name == \"akmods-nvidia-open-${fedora_version}\") | .digest" {{ image-file }})"
-
+    CHUNKAH_IMAGE_DIGEST="$(yq -r ".images[] | select(.name == \"chunkah\") | .digest" {{ image-file }})"
     # Verify Source Containers
     # TODO registry.fedoraproject.org does not sign images
     # {{ just }} verify-container "$source_image_name@$SOURCE_IMAGE_DIGEST" "{{ source_registry }}"
     {{ just }} verify-container \
-        "akmods-nvidia-open@$AKMODS_NVIDIA_IMAGE_DIGEST" \
-        "{{ akmods_nvidia_registry }}" \
-        "https://raw.githubusercontent.com/ublue-os/main/main/cosign.pub" \
-        "{{ justfile_dir() }}/build_files/keys/ublue-os-main-cosign.pub"
+        "chunkah:latest@$CHUNKAH_IMAGE_DIGEST" \
+        "{{ chunkah_registry }}" \
+        "" \
+        "" \
+        "^https://github\\.com/coreos/chunkah/" \
+        "https://token.actions.githubusercontent.com"
 
     # Tags
     declare -A gen_tags="($({{ just }} gen-tags $image_name $fedora_version $variant))"
     if [[ "${github:-}" =~ pull_request ]]; then
         tags=(${gen_tags["COMMIT_TAGS"]})
+    elif [[ "${github:-}" =~ push ]]; then
+        tags=(${gen_tags["BRANCH_TAGS"]})
     else
         tags=(${gen_tags["BUILD_TAGS"]})
     fi
@@ -188,22 +191,25 @@ build-container $image_name="" $fedora_version="" $variant="" $github="":
     for tag in "${tags[@]}"; do
         TAGS+=("--tag" "localhost/${image_name}:$tag")
     done
+    SOURCE_TAG="localhost/${image_name}:$fedora_version-$variant-source"
 
     # Labels
     VERSION="$fedora_version.$TIMESTAMP"
+    DESCRIPTION="A base ${image_name%-*} image with batteries included"
+    SOURCE_URL="https://github.com/{{ org }}/{{ repo }}"
+    README_URL="https://raw.githubusercontent.com/{{ org }}/{{ repo }}/main/README.md"
+    LOGO_URL="https://avatars.githubusercontent.com/u/120078124?s=200&v=4"
     LABELS=(
         "--label" "org.opencontainers.image.title=${image_name}"
         "--label" "org.opencontainers.image.version=${VERSION}"
-        "--label" "org.opencontainers.image.description=A base ${image_name%-*} image with batteries included"
-        "--label" "org.opencontainers.image.source=https://github.com/{{ org }}/{{ repo }}"
-        "--label" "io.artifacthub.package.readme-url=https://raw.githubusercontent.com/{{ org }}/{{ repo }}/main/README.md"
-        "--label" "io.artifacthub.package.logo-url=https://avatars.githubusercontent.com/u/120078124?s=200&v=4"
+        "--label" "org.opencontainers.image.description=${DESCRIPTION}"
+        "--label" "org.opencontainers.image.source=${SOURCE_URL}"
+        "--label" "io.artifacthub.package.readme-url=${README_URL}"
+        "--label" "io.artifacthub.package.logo-url=${LOGO_URL}"
     )
 
     TARGET="main"
-    if [[ "$variant" =~ nvidia ]]; then
-        TARGET="nvidia"
-    fi
+    SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}"
 
     # Build Arguments
     BUILD_ARGS=(
@@ -213,20 +219,34 @@ build-container $image_name="" $fedora_version="" $variant="" $github="":
         "--build-arg" "SOURCE_IMAGE=${source_image_name}"
         "--build-arg" "FEDORA_MAJOR_VERSION=$fedora_version"
         "--build-arg" "IMAGE_REGISTRY={{ IMAGE_REGISTRY }}"
-        "--build-arg" "AKMODS_NVIDIA_REGISTRY={{ akmods_nvidia_registry }}"
-        "--build-arg" "AKMODS_NVIDIA_IMAGE=akmods-nvidia-open"
         "--build-arg" "SOURCE_IMAGE_DIGEST=$SOURCE_IMAGE_DIGEST"
-        "--build-arg" "AKMODS_NVIDIA_IMAGE_DIGEST=$AKMODS_NVIDIA_IMAGE_DIGEST"
+        "--build-arg" "CHUNKAH_IMAGE=chunkah"
+        "--build-arg" "CHUNKAH_IMAGE_DIGEST=$CHUNKAH_IMAGE_DIGEST"
+        "--build-arg" "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+    )
+    CHUNK_BUILD_ARGS=(
+        "${BUILD_ARGS[@]}"
+        "--build-arg" "CHUNK_SOURCE_IMAGE=$SOURCE_TAG"
+        "--build-arg" "OCI_IMAGE_TITLE=$image_name"
+        "--build-arg" "OCI_IMAGE_VERSION=$VERSION"
+        "--build-arg" "OCI_IMAGE_DESCRIPTION=$DESCRIPTION"
+        "--build-arg" "OCI_IMAGE_SOURCE=$SOURCE_URL"
+        "--build-arg" "OCI_IMAGE_README_URL=$README_URL"
+        "--build-arg" "OCI_IMAGE_LOGO_URL=$LOGO_URL"
     )
 
     # Pull Images with retry
-    pull-retry "{{ akmods_nvidia_registry }}/akmods-nvidia-open:main-$fedora_version@$AKMODS_NVIDIA_IMAGE_DIGEST"
+    pull-retry "{{ chunkah_registry }}/chunkah:latest@$CHUNKAH_IMAGE_DIGEST"
     pull-retry "{{ source_registry }}/$source_image_name:$fedora_version@$SOURCE_IMAGE_DIGEST"
 
     CACHE_IMAGE="{{ IMAGE_REGISTRY }}/$image_name-cache-$fedora_version"
     CACHE_ARGS=(
         "--layers"
         "--cache-from" "$CACHE_IMAGE"
+    )
+    CHUNK_BUILD_RUN_ARGS=(
+        "-v" "$PWD:/run/src"
+        "--security-opt=label=disable"
     )
     if [[ -n "${CI:-}" && ! "${github:-}" =~ pull_request ]]; then
         CACHE_ARGS+=("--cache-to" "$CACHE_IMAGE")
@@ -242,12 +262,17 @@ build-container $image_name="" $fedora_version="" $variant="" $github="":
         BUILD_SECRETS+=("--secret" "id=GITHUB_TOKEN,src=$GITHUB_TOKEN_FILE")
     fi
 
-    # Build Image
-    {{ PODMAN }} build --target "$TARGET" -f Containerfile "${CACHE_ARGS[@]}" "${BUILD_SECRETS[@]}" "${BUILD_ARGS[@]}" "${LABELS[@]}" "${TAGS[@]}"
+    # Build selected source target, then rechunk it into the final image.
+    rm -rf .chunkah-out out.ociarchive
+    trap 'rm -rf .chunkah-out out.ociarchive; [[ -n "${GITHUB_TOKEN_FILE:-}" ]] && rm -f "$GITHUB_TOKEN_FILE"' EXIT
+    {{ PODMAN }} build --target "$TARGET" -f Containerfile "${CACHE_ARGS[@]}" "${BUILD_SECRETS[@]}" "${BUILD_ARGS[@]}" --tag "$SOURCE_TAG"
+    {{ PODMAN }} build --target chunked --skip-unused-stages=false "${CHUNK_BUILD_RUN_ARGS[@]}" -f Containerfile "${CHUNK_BUILD_ARGS[@]}" "${LABELS[@]}" "${TAGS[@]}"
+    rm -rf .chunkah-out out.ociarchive
 
     # CI Cleanup
     if [[ -n "${CI:-}" ]]; then
-        {{ PODMAN }} rmi -f "{{ akmods_nvidia_registry }}/akmods-nvidia-open:main-$fedora_version@$AKMODS_NVIDIA_IMAGE_DIGEST"
+        {{ PODMAN }} rmi -f "$SOURCE_TAG"
+        {{ PODMAN }} rmi -f "{{ chunkah_registry }}/chunkah:latest@$CHUNKAH_IMAGE_DIGEST"
         {{ PODMAN }} rmi -f "{{ source_registry }}/$source_image_name:$fedora_version@$SOURCE_IMAGE_DIGEST"
     fi
 
@@ -286,24 +311,35 @@ gen-tags $image_name="" $fedora_version="" $variant="":
 
     # Add a sha tag for tracking builds during a pull request
     SHA_SHORT="$(git rev-parse --short HEAD)"
+    REF_NAME="${GITHUB_REF_NAME:-$(git branch --show-current 2>/dev/null || echo local)}"
+    REF_SLUG="$(printf '%s' "$REF_NAME" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//')"
+    REF_SLUG="${REF_SLUG:-branch}"
+    REF_SLUG="${REF_SLUG:0:80}"
 
     # Define Versions
     if [[ "$fedora_version" -eq "{{ gts }}" ]]; then
         COMMIT_TAGS=("$SHA_SHORT-gts")
         BUILD_TAGS=("gts" "gts-$TIMESTAMP")
+        BRANCH_TAGS=("branch-$REF_SLUG-gts")
     elif [[ "$fedora_version" -eq "{{ latest }}" ]]; then
         COMMIT_TAGS=("$SHA_SHORT-latest")
         BUILD_TAGS=("latest" "latest-$TIMESTAMP")
+        BRANCH_TAGS=("branch-$REF_SLUG-latest")
     elif [[ "$fedora_version" -eq "{{ beta }}" ]]; then
         COMMIT_TAGS=("$SHA_SHORT-beta")
         BUILD_TAGS=("beta" "beta-$TIMESTAMP")
+        BRANCH_TAGS=("branch-$REF_SLUG-beta")
     fi
 
     COMMIT_TAGS+=("$SHA_SHORT-$fedora_version" "$fedora_version")
     BUILD_TAGS+=("$fedora_version" "$fedora_version-$TIMESTAMP")
+    BRANCH_TAGS+=("branch-$REF_SLUG-$fedora_version" "branch-$REF_SLUG-$SHA_SHORT")
     declare -A output
     output["BUILD_TAGS"]="${BUILD_TAGS[*]}"
     output["COMMIT_TAGS"]="${COMMIT_TAGS[*]}"
+    output["BRANCH_TAGS"]="${BRANCH_TAGS[*]}"
     output["TIMESTAMP"]="$TIMESTAMP"
     echo "${output[@]@K}"
 
@@ -314,7 +350,7 @@ image-name-check $image_name $fedora_version $variant:
     set ${SET_X:+-x} -eou pipefail
     declare -A images={{ images }}
 
-    if [[ "$image_name" =~ -main$|-nvidia$ ]]; then
+    if [[ "$image_name" =~ -main$ ]]; then
         image_name="${image_name%-*}"
     fi
 
@@ -430,7 +466,7 @@ fix:
 
 # Verify Container with Cosign
 [group('Utility')]
-verify-container $container="" $registry="" $key="" $fallback_key="":
+verify-container $container="" $registry="" $key="" $fallback_key="" $cert_identity_regexp="" $cert_oidc_issuer="":
     #!/usr/bin/env bash
     set ${SET_X:+-x} -eou pipefail
 
@@ -438,6 +474,8 @@ verify-container $container="" $registry="" $key="" $fallback_key="":
     : "${registry:={{ IMAGE_REGISTRY }}}"
     : "${key:=https://raw.githubusercontent.com/{{ org }}/{{ repo }}/main/cosign.pub}"
     : "${fallback_key:=}"
+    : "${cert_identity_regexp:=}"
+    : "${cert_oidc_issuer:=}"
 
     default_repo_key="{{ justfile_dir() }}/cosign.pub"
     default_ublue_key="{{ justfile_dir() }}/build_files/keys/ublue-os-main-cosign.pub"
@@ -529,50 +567,65 @@ verify-container $container="" $registry="" $key="" $fallback_key="":
     }
     trap cleanup EXIT
 
-    if [[ "$key" =~ ^https?:// ]]; then
-        tmp_key="$(mktemp)"
-        if download_key_url "$key" "$tmp_key" && is_valid_pubkey "$tmp_key"; then
-            resolved_key="$tmp_key"
-            if [[ -f "$fallback_key" ]] && is_valid_pubkey "$fallback_key" && ! cmp -s "$tmp_key" "$fallback_key"; then
-                warn "Fallback key '$fallback_key' is out of date with '$key'."
-            fi
-        elif [[ -f "$fallback_key" ]] && is_valid_pubkey "$fallback_key"; then
-            warn "Unable to use signing key URL '$key', falling back to '$fallback_key'."
-            resolved_key="$fallback_key"
-        else
-            echo "{{ style('error') }}NOTICE: Unable to load signing key from '$key' and fallback '$fallback_key' is missing/invalid.{{ NORMAL }}" >&2
-            exit 1
-        fi
-    elif [[ -f "$key" ]] && is_valid_pubkey "$key"; then
-        resolved_key="$key"
-    elif [[ -f "$fallback_key" ]] && is_valid_pubkey "$fallback_key"; then
-        warn "Key '$key' is missing/invalid, falling back to '$fallback_key'."
-        resolved_key="$fallback_key"
-    else
-        echo "{{ style('error') }}NOTICE: Signing key '$key' is missing/invalid and no usable fallback key was found.{{ NORMAL }}" >&2
-        exit 1
-    fi
-
     verify_log="$(mktemp)"
 
-    # Verify Container using cosign public key. If the upstream image presents
-    # a certificate-based signature instead, retry with the GitHub Actions OIDC
-    # identity used by ublue-os.
-    if ! cosign verify --key "$resolved_key" "$registry/$container" >/dev/null 2>"$verify_log"; then
-        if grep -Fq "expected key signature, not certificate" "$verify_log" \
-            && [[ "$registry/$container" == ghcr.io/ublue-os/* ]]; then
-            warn "Key verification returned a certificate signature for '$registry/$container'; retrying with GitHub OIDC identity verification."
-            if cosign verify \
-                --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-                --certificate-identity-regexp '^https://github.com/ublue-os/.+' \
-                "$registry/$container" >/dev/null; then
-                exit 0
+    if [[ -n "$cert_identity_regexp" || -n "$cert_oidc_issuer" ]]; then
+        if [[ -z "$cert_identity_regexp" || -z "$cert_oidc_issuer" ]]; then
+            echo "{{ style('error') }}NOTICE: Both cert_identity_regexp and cert_oidc_issuer are required for keyless verification.{{ NORMAL }}" >&2
+            exit 1
+        fi
+        if ! cosign verify \
+            --certificate-identity-regexp "$cert_identity_regexp" \
+            --certificate-oidc-issuer "$cert_oidc_issuer" \
+            "$registry/$container" >/dev/null 2>"$verify_log"; then
+            cat "$verify_log" >&2
+            echo "{{ style('error') }}NOTICE: Keyless verification failed.{{ NORMAL }}" >&2
+            exit 1
+        fi
+    else
+        if [[ "$key" =~ ^https?:// ]]; then
+            tmp_key="$(mktemp)"
+            if download_key_url "$key" "$tmp_key" && is_valid_pubkey "$tmp_key"; then
+                resolved_key="$tmp_key"
+                if [[ -f "$fallback_key" ]] && is_valid_pubkey "$fallback_key" && ! cmp -s "$tmp_key" "$fallback_key"; then
+                    warn "Fallback key '$fallback_key' is out of date with '$key'."
+                fi
+            elif [[ -f "$fallback_key" ]] && is_valid_pubkey "$fallback_key"; then
+                warn "Unable to use signing key URL '$key', falling back to '$fallback_key'."
+                resolved_key="$fallback_key"
+            else
+                echo "{{ style('error') }}NOTICE: Unable to load signing key from '$key' and fallback '$fallback_key' is missing/invalid.{{ NORMAL }}" >&2
+                exit 1
             fi
+        elif [[ -f "$key" ]] && is_valid_pubkey "$key"; then
+            resolved_key="$key"
+        elif [[ -f "$fallback_key" ]] && is_valid_pubkey "$fallback_key"; then
+            warn "Key '$key' is missing/invalid, falling back to '$fallback_key'."
+            resolved_key="$fallback_key"
+        else
+            echo "{{ style('error') }}NOTICE: Signing key '$key' is missing/invalid and no usable fallback key was found.{{ NORMAL }}" >&2
+            exit 1
         fi
 
-        cat "$verify_log" >&2
-        echo "{{ style('error') }}NOTICE: Verification failed. Please ensure your public key is correct.{{ NORMAL }}" >&2
-        exit 1
+        # Verify Container using cosign public key. If the upstream image presents
+        # a certificate-based signature instead, retry with the GitHub OIDC
+        # identity used by ublue-os.
+        if ! cosign verify --key "$resolved_key" "$registry/$container" >/dev/null 2>"$verify_log"; then
+            if grep -Fq "expected key signature, not certificate" "$verify_log" \
+                && [[ "$registry/$container" == ghcr.io/ublue-os/* ]]; then
+                warn "Key verification returned a certificate signature for '$registry/$container'; retrying with GitHub OIDC identity verification."
+                if cosign verify \
+                    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                    --certificate-identity-regexp '^https://github.com/ublue-os/.+' \
+                    "$registry/$container" >/dev/null; then
+                    exit 0
+                fi
+            fi
+
+            cat "$verify_log" >&2
+            echo "{{ style('error') }}NOTICE: Verification failed. Please ensure your public key is correct.{{ NORMAL }}" >&2
+            exit 1
+        fi
     fi
 
 [group('CI')]
@@ -682,11 +735,6 @@ check-fallback-keys:
     #!/usr/bin/env bash
     set ${SET_X:+-x} -eou pipefail
 
-    {{ just }} check-fallback-key \
-        "https://raw.githubusercontent.com/ublue-os/main/main/cosign.pub" \
-        "{{ justfile_dir() }}/build_files/keys/ublue-os-main-cosign.pub" \
-        "ublue-os/main"
-
 # Removes all Tags of an image from container storage.
 [group('Utility')]
 clean $image_name $fedora_version $variant $registry="":
@@ -716,18 +764,23 @@ push-to-registry $image_name $fedora_version $variant $destination="" $transport
     set ${SET_X:+-x} -eou pipefail
 
     {{ get-names }}
-    {{ build-missing }}
 
     : "${destination:={{ IMAGE_REGISTRY }}}"
     : "${transport:="docker://"}"
 
-    declare -a TAGS="($({{ PODMAN }} image list localhost/$image_name:$fedora_version --noheading --format 'table {{{{ .Tag }}'))"
+    declare -A gen_tags="($({{ just }} gen-tags $image_name $fedora_version $variant))"
+    tags=(${gen_tags["BUILD_TAGS"]})
+    source_tag="$fedora_version"
+    local_tag="$source_tag"
+    {{ build-missing }}
+
+    declare -a TAGS=("${tags[@]}")
     for tag in "${TAGS[@]}"; do
         if {{ PODMAN }} manifest exists "localhost/$image_name:$tag-manifest"; then
             {{ PODMAN }} manifest rm "localhost/$image_name:$tag-manifest"
         fi
         {{ PODMAN }} manifest create "localhost/$image_name:$tag-manifest"
-        {{ PODMAN }} manifest add "localhost/$image_name:$tag-manifest" "containers-storage:localhost/$image_name:$fedora_version"
+        {{ PODMAN }} manifest add "localhost/$image_name:$tag-manifest" "containers-storage:localhost/$image_name:$source_tag"
         for i in {1..5}; do
             {{ PODMAN }} manifest push --compression-format=gzip --add-compression=zstd --add-compression=zstd:chunked "localhost/$image_name:$tag-manifest" "$transport$destination/$image_name:$tag" 2>&1 && break || sleep $((5 * i));
         done
@@ -740,10 +793,11 @@ cosign-sign $image_name $fedora_version $variant $destination="":
     set ${SET_X:+-x} -eou pipefail
 
     {{ get-names }}
-    {{ build-missing }}
 
     : "${destination:={{ IMAGE_REGISTRY }}}"
-    digest="$(skopeo inspect docker://$destination/$image_name:$fedora_version --format '{{{{ .Digest }}')"
+    declare -A gen_tags="($({{ just }} gen-tags $image_name $fedora_version $variant))"
+    tags=(${gen_tags["BUILD_TAGS"]})
+    digest="$(skopeo inspect docker://$destination/$image_name:${tags[0]} --format '{{{{ .Digest }}')"
     cosign sign -y --key env://COSIGN_PRIVATE_KEY "$destination/$image_name@$digest"
 
 # Generate SBOM

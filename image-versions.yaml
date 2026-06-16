@@ -1,20 +1,17 @@
 images:
+  - name: chunkah
+    image: quay.io/coreos/chunkah
+    tag: latest
+    digest: sha256:ff8b8b466a942ec6000445d4001fc661e2fc5a952ad9ee29b4de9ab09d1d1708
+
   # Fedora 43
   - name: fedora-toolbox-43
     image: registry.fedoraproject.org/fedora-toolbox
     tag: 43
-    digest: sha256:0be1d7323c5ddcd6acc667f58a52b50b934ea88a2107de08e1ce2e60982ffcbe
-  - name: akmods-nvidia-open-43
-    image: ghcr.io/ublue-os/akmods-nvidia-open
-    tag: main-43
-    digest: sha256:dc6d32d99f1a3159163f1bd58f2710b11d29dc20f3957b738c828055e2ad3bbf
+    digest: sha256:d84175c16c383caee761c9c194e1ed22c5bad141b304aa7fc1f26d9823e6627e
 
   # Fedora 44
   - name: fedora-toolbox-44
     image: registry.fedoraproject.org/fedora-toolbox
     tag: 44
-    digest: sha256:206c037ddd919c8ced215ee300ca7c6d125090a239f0edd3392d5925a3168f18
-  - name: akmods-nvidia-open-44
-    image: ghcr.io/ublue-os/akmods-nvidia-open
-    tag: main-44
-    digest: sha256:504e01361c73fce293712fb86729fe7b2a769b30e2c7d4a30163ac372009d36e
+    digest: sha256:e9043b37ad3c5d59f94b2fffc298096553a69319b173ced93f5aa0de692ee512
