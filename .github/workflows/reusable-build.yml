@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       image_variant:
-        description: "The variant of image to build.  E.G. main, nvidia"
+        description: "The variant of image to build. E.G. main"
         required: false
         type: string
         default: "main"
@@ -92,24 +92,6 @@ jobs:
             BUILD_REQUIRED=true
           fi
           
-          if [ "${IMAGE_VARIANT}" == "nvidia" ]; then
-            AKMODS_NVIDIA_NAME="akmods-nvidia-open-${IMAGE_VERSION}"
-            OLD_AKMODS_NVIDIA_DIGEST=$(yq -r ".images[] | select(.name == \"${AKMODS_NVIDIA_NAME}\") | .digest" main/image-versions.yaml)
-            NEW_AKMODS_NVIDIA_DIGEST=$(yq -r ".images[] | select(.name == \"${AKMODS_NVIDIA_NAME}\") | .digest" pr/image-versions.yaml)
-
-            echo "Akmods-NVIDIA image old: ${OLD_AKMODS_NVIDIA_DIGEST}, new: ${NEW_AKMODS_NVIDIA_DIGEST}"
-
-            if [ "$OLD_AKMODS_NVIDIA_DIGEST" != "$NEW_AKMODS_NVIDIA_DIGEST" ]; then
-              echo "Akmods-NVIDIA digest changed."
-              BUILD_REQUIRED=true
-            fi
-
-            if [ -z "$OLD_AKMODS_NVIDIA_DIGEST" ] || [ "$OLD_AKMODS_NVIDIA_DIGEST" = "null" ] || [ -z "$NEW_AKMODS_NVIDIA_DIGEST" ] || [ "$NEW_AKMODS_NVIDIA_DIGEST" = "null" ]; then
-              echo "Unable to resolve one or more Akmods-NVIDIA digests; forcing build."
-              BUILD_REQUIRED=true
-            fi
-          fi
-
           # If any file other than image-versions.yaml has changed, we also need to build.
           echo "Checking for changes outside image-versions.yaml..."
 
