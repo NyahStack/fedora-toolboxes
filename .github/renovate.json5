@@ -21,6 +21,16 @@
       "matchUpdateTypes": ["pin", "pinDigest"]
     },
     {
+      // Chunkah's digest is intentionally tracked in image-versions.yaml and
+      // passed through CHUNKAH_IMAGE_DIGEST. Pinning the Containerfile FROM line
+      // creates an invalid duplicate digest expression.
+      "enabled": false,
+      "matchManagers": ["dockerfile"],
+      "matchFileNames": ["Containerfile"],
+      "matchPackageNames": ["quay.io/coreos/chunkah"],
+      "matchUpdateTypes": ["pin", "pinDigest"]
+    },
+    {
       "enabled": false,
       "matchUpdateTypes": ["digest", "pinDigest", "pin"],
       "matchDepTypes": ["container"],
