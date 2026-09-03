@@ -757,9 +757,19 @@ clean $image_name $fedora_version $variant $registry="":
     echo "$token" | {{ PODMAN }} login ghcr.io -u "$user" --password-stdin
     echo "$token" | docker login ghcr.io -u "$user" --password-stdin
 
+# Resolve Build Tags
+[group('CI')]
+resolve-tags $image_name $fedora_version $variant:
+    #!/usr/bin/bash
+    set ${SET_X:+-x} -eou pipefail
+
+    {{ get-names }}
+    declare -A gen_tags="($({{ just }} gen-tags $image_name $fedora_version $variant))"
+    echo "${gen_tags["BUILD_TAGS"]}"
+
 # Push Images to Registry
 [group('CI')]
-push-to-registry $image_name $fedora_version $variant $destination="" $transport="":
+push-to-registry $image_name $fedora_version $variant $destination="" $transport="" $tags="":
     #!/usr/bin/bash
     set ${SET_X:+-x} -eou pipefail
 
@@ -767,14 +777,13 @@ push-to-registry $image_name $fedora_version $variant $destination="" $transport
 
     : "${destination:={{ IMAGE_REGISTRY }}}"
     : "${transport:="docker://"}"
+    : "${tags:=$({{ just }} resolve-tags $image_name $fedora_version $variant)}"
 
-    declare -A gen_tags="($({{ just }} gen-tags $image_name $fedora_version $variant))"
-    tags=(${gen_tags["BUILD_TAGS"]})
+    declare -a TAGS=($tags)
     source_tag="$fedora_version"
     local_tag="$source_tag"
     {{ build-missing }}
 
-    declare -a TAGS=("${tags[@]}")
     for tag in "${TAGS[@]}"; do
         if {{ PODMAN }} manifest exists "localhost/$image_name:$tag-manifest"; then
             {{ PODMAN }} manifest rm "localhost/$image_name:$tag-manifest"
@@ -788,17 +797,54 @@ push-to-registry $image_name $fedora_version $variant $destination="" $transport
 
 # Sign Images with Cosign
 [group('CI')]
-cosign-sign $image_name $fedora_version $variant $destination="":
+cosign-sign $image_name $fedora_version $variant $destination="" $tags="":
     #!/usr/bin/bash
     set ${SET_X:+-x} -eou pipefail
 
     {{ get-names }}
 
     : "${destination:={{ IMAGE_REGISTRY }}}"
-    declare -A gen_tags="($({{ just }} gen-tags $image_name $fedora_version $variant))"
-    tags=(${gen_tags["BUILD_TAGS"]})
-    digest="$(skopeo inspect docker://$destination/$image_name:${tags[0]} --format '{{{{ .Digest }}')"
-    cosign sign -y --key env://COSIGN_PRIVATE_KEY "$destination/$image_name@$digest"
+    : "${tags:=$({{ just }} resolve-tags $image_name $fedora_version $variant)}"
+
+    declare -a TAGS=($tags)
+    declare -A digests_signed=()
+    for tag in "${TAGS[@]}"; do
+        digest="$(skopeo inspect docker://$destination/$image_name:$tag --format '{{{{ .Digest }}')"
+        if [[ -z "${digests_signed["$digest"]:-}" ]]; then
+            cosign sign -y --key env://COSIGN_PRIVATE_KEY "$destination/$image_name@$digest"
+            digests_signed["$digest"]="1"
+        fi
+    done
+
+# Verify Published Tags
+[group('CI')]
+verify-published-tags $image_name $fedora_version $variant $destination="" $tags="" $key="" $fallback_key="" $cert_identity_regexp="" $cert_oidc_issuer="":
+    #!/usr/bin/bash
+    set ${SET_X:+-x} -eou pipefail
+
+    {{ get-names }}
+
+    : "${destination:={{ IMAGE_REGISTRY }}}"
+    : "${tags:=$({{ just }} resolve-tags $image_name $fedora_version $variant)}"
+
+    declare -a TAGS=($tags)
+    declare -A digests_checked=()
+    failed_tags=()
+    for tag in "${TAGS[@]}"; do
+        digest="$(skopeo inspect "docker://$destination/$image_name:$tag" --format '{{{{ .Digest }}')"
+        if [[ -n "${digests_checked["$digest"]:-}" ]]; then
+            continue
+        fi
+        digests_checked["$digest"]="1"
+        if ! {{ just }} verify-container "$image_name@$digest" "$destination" "$key" "$fallback_key" "$cert_identity_regexp" "$cert_oidc_issuer"; then
+            failed_tags+=("$tag ($digest)")
+        fi
+    done
+
+    if [[ "${#failed_tags[@]}" -gt 0 ]]; then
+        echo "{{ style('error') }}NOTICE: Unsigned published tag(s) for '$image_name': ${failed_tags[*]}{{ NORMAL }}" >&2
+        exit 1
+    fi
 
 # Generate SBOM
 [group('CI')]
