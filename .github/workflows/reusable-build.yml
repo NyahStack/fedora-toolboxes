@@ -191,6 +191,17 @@ jobs:
         with:
           string: ${{ env.IMAGE_REGISTRY }}
 
+      - name: Resolve Tags
+        id: tags
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          tags="$(just resolve-tags \
+              "${{ inputs.image_name }}" \
+              "${{ inputs.image_version }}" \
+              "${{ inputs.image_variant }}")"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
       - name: Push To GHCR
         id: push
         if: github.event_name != 'pull_request'
@@ -200,7 +211,9 @@ jobs:
               "${{ inputs.image_name }}" \
               "${{ inputs.image_version }}" \
               "${{ inputs.image_variant }}" \
-              "${{ steps.registry_case.outputs.lowercase }}"
+              "${{ steps.registry_case.outputs.lowercase }}" \
+              "" \
+              "${{ steps.tags.outputs.tags }}"
 
       - name: Sign Container Image
         id: sign
@@ -214,7 +227,20 @@ jobs:
               "${{ inputs.image_name }}" \
               "${{ inputs.image_version }}" \
               "${{ inputs.image_variant }}" \
-              "${{ steps.registry_case.outputs.lowercase }}"
+              "${{ steps.registry_case.outputs.lowercase }}" \
+              "${{ steps.tags.outputs.tags }}"
+
+      - name: Verify Published Tags
+        id: verify
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          just verify-published-tags \
+              "${{ inputs.image_name }}" \
+              "${{ inputs.image_version }}" \
+              "${{ inputs.image_variant }}" \
+              "${{ steps.registry_case.outputs.lowercase }}" \
+              "${{ steps.tags.outputs.tags }}"
 
       - name: SBOM Setup
         if: false
