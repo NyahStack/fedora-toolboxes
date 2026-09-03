@@ -784,22 +784,14 @@ push-to-registry $image_name $fedora_version $variant $destination="" $transport
     local_tag="$source_tag"
     {{ build-missing }}
 
-    primary_tag="${TAGS[0]}"
-
-    if {{ PODMAN }} manifest exists "localhost/$image_name:$primary_tag-manifest"; then
-        {{ PODMAN }} manifest rm "localhost/$image_name:$primary_tag-manifest"
-    fi
-    {{ PODMAN }} manifest create "localhost/$image_name:$primary_tag-manifest"
-    {{ PODMAN }} manifest add "localhost/$image_name:$primary_tag-manifest" "containers-storage:localhost/$image_name:$source_tag"
-    for i in {1..5}; do
-        {{ PODMAN }} manifest push --compression-format=gzip --add-compression=zstd --add-compression=zstd:chunked "localhost/$image_name:$primary_tag-manifest" "$transport$destination/$image_name:$primary_tag" 2>&1 && break || sleep $((5 * i));
-    done
-
-    primary_digest="$(skopeo inspect "$transport$destination/$image_name:$primary_tag" --format '{{{{ .Digest }}')"
-
-    for tag in "${TAGS[@]:1}"; do
+    for tag in "${TAGS[@]}"; do
+        if {{ PODMAN }} manifest exists "localhost/$image_name:$tag-manifest"; then
+            {{ PODMAN }} manifest rm "localhost/$image_name:$tag-manifest"
+        fi
+        {{ PODMAN }} manifest create "localhost/$image_name:$tag-manifest"
+        {{ PODMAN }} manifest add "localhost/$image_name:$tag-manifest" "containers-storage:localhost/$image_name:$source_tag"
         for i in {1..5}; do
-            skopeo copy --all --preserve-digests "$transport$destination/$image_name@$primary_digest" "$transport$destination/$image_name:$tag" 2>&1 && break || sleep $((5 * i));
+            {{ PODMAN }} manifest push --compression-format=gzip --add-compression=zstd --add-compression=zstd:chunked "localhost/$image_name:$tag-manifest" "$transport$destination/$image_name:$tag" 2>&1 && break || sleep $((5 * i));
         done
     done
 
@@ -815,8 +807,14 @@ cosign-sign $image_name $fedora_version $variant $destination="" $tags="":
     : "${tags:=$({{ just }} resolve-tags $image_name $fedora_version $variant)}"
 
     declare -a TAGS=($tags)
-    digest="$(skopeo inspect docker://$destination/$image_name:${TAGS[0]} --format '{{{{ .Digest }}')"
-    cosign sign -y --key env://COSIGN_PRIVATE_KEY "$destination/$image_name@$digest"
+    declare -A digests_signed=()
+    for tag in "${TAGS[@]}"; do
+        digest="$(skopeo inspect docker://$destination/$image_name:$tag --format '{{{{ .Digest }}')"
+        if [[ -z "${digests_signed["$digest"]:-}" ]]; then
+            cosign sign -y --key env://COSIGN_PRIVATE_KEY "$destination/$image_name@$digest"
+            digests_signed["$digest"]="1"
+        fi
+    done
 
 # Verify Published Tags
 [group('CI')]
@@ -830,26 +828,23 @@ verify-published-tags $image_name $fedora_version $variant $destination="" $tags
     : "${tags:=$({{ just }} resolve-tags $image_name $fedora_version $variant)}"
 
     declare -a TAGS=($tags)
-    declare -A digest_by_tag=()
+    declare -A digests_checked=()
+    failed_tags=()
     for tag in "${TAGS[@]}"; do
-        digest_by_tag["$tag"]="$(skopeo inspect "docker://$destination/$image_name:$tag" --format '{{{{ .Digest }}')"
+        digest="$(skopeo inspect "docker://$destination/$image_name:$tag" --format '{{{{ .Digest }}')"
+        if [[ -n "${digests_checked["$digest"]:-}" ]]; then
+            continue
+        fi
+        digests_checked["$digest"]="1"
+        if ! {{ just }} verify-container "$image_name@$digest" "$destination" "$key" "$fallback_key" "$cert_identity_regexp" "$cert_oidc_issuer"; then
+            failed_tags+=("$tag ($digest)")
+        fi
     done
 
-    declare -A distinct_digests=()
-    for tag in "${!digest_by_tag[@]}"; do
-        distinct_digests["${digest_by_tag[$tag]}"]="1"
-    done
-
-    if [[ "${#distinct_digests[@]}" -ne 1 ]]; then
-        echo "{{ style('error') }}NOTICE: Published tags for '$image_name' do not all share one digest:{{ NORMAL }}" >&2
-        for tag in "${!digest_by_tag[@]}"; do
-            echo "  $tag -> ${digest_by_tag[$tag]}" >&2
-        done
+    if [[ "${#failed_tags[@]}" -gt 0 ]]; then
+        echo "{{ style('error') }}NOTICE: Unsigned published tag(s) for '$image_name': ${failed_tags[*]}{{ NORMAL }}" >&2
         exit 1
     fi
-
-    digest="$(printf '%s\n' "${!distinct_digests[@]}" | head -n1)"
-    {{ just }} verify-container "$image_name@$digest" "$destination" "$key" "$fallback_key" "$cert_identity_regexp" "$cert_oidc_issuer"
 
 # Generate SBOM
 [group('CI')]
