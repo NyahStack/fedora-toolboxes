@@ -14,4 +14,4 @@ images:
   - name: fedora-toolbox-44
     image: registry.fedoraproject.org/fedora-toolbox
     tag: 44
-    digest: sha256:be594b52d14057756ab1a910bd3d0302e5aa230ec82b6f217410b0f546a9d5b4
+    digest: sha256:96f4c862a0c37bca8c8c48fceb66f101185a4d39cf6e850940d83b581610f977
